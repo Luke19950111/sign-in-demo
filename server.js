@@ -23,6 +23,30 @@ var server = http.createServer(function (request, response) {
 
     if (path === '/') {
         let string = fs.readFileSync('./index.html', 'utf8')
+        let cookies = request.headers.cookie.split('; ') // ['email=1@', 'a=1', 'b=2']
+        let hash = {}
+        for (let i = 0; i < cookies.length; i++) {
+            let parts = cookies[i].split('=')
+            let key = parts[0]
+            let value = parts[1]
+            hash[key] = value
+        }
+        let email = hash.sign_in_email
+        let users = fs.readFileSync('./db/users', 'utf8')
+        users = JSON.parse(users)
+        let foundUser
+        for (let i = 0; i < users.length; i++) {
+            if (users[i].email === email) {
+                foundUser = users[i]
+                break
+            }
+        }
+        console.log(foundUser)
+        if (foundUser) {
+            string = string.replace('__password__', foundUser.password)
+        } else {
+            string = string.replace('__password__', '不知道')
+        }
         response.statusCode = 200
         response.setHeader('Content-Type', 'text/html;charset=utf-8')
         response.write(string)
@@ -43,8 +67,8 @@ var server = http.createServer(function (request, response) {
                 let value = parts[1]
                 hash[key] = decodeURIComponent(value) // hash['email'] = '1'
             })
-            let {email, password, password_confirmation} = hash
-            if(email.indexOf('@') === -1){
+            let { email, password, password_confirmation } = hash
+            if (email.indexOf('@') === -1) {
                 response.statusCode = 400
                 response.setHeader('Content-Type', 'application/json;charset=utf-8')
                 response.write(`{
@@ -52,11 +76,71 @@ var server = http.createServer(function (request, response) {
                         "email": "invalid"
                     }
                 }`)
-            }else if(password !== password_confirmation){
+            } else if (password !== password_confirmation) {
                 response.statusCode = 400
                 response.write('password not match')
-            }else{
+            } else {
+                var users = fs.readFileSync('./db/users', 'utf8')
+                try {
+                    users = JSON.parse(users) // 如果users不符合JSON语法就放弃它，把它变成空数组
+                } catch (exception) {
+                    users = []
+                }
+                let inUse = false
+                for (let i = 0; i < users.length; i++) {
+                    let user = users[i]
+                    if (user.email = email) {
+                        inUse = true
+                        break
+                    }
+                }
+                if (inUse) {
+                    response.statusCode = 400
+                    response.write('email in use')
+                } else {
+                    users.push({ email: email, password: password })
+                    var usersString = JSON.stringify(users) //对象不能直接存，将其变成字符串
+                    fs.writeFileSync('./db/users', usersString)
+                    response.statusCode = 200
+                }
+            }
+            response.end()
+        })
+    } else if (path === '/sign_in' && method === 'GET') {
+        let string = fs.readFileSync('./sign_in.html', 'utf8')
+        response.statusCode = 200
+        response.setHeader('Content-Type', 'text/html;charset=utf-8')
+        response.write(string)
+        response.end()
+    } else if (path === '/sign_in' && method === 'POST') {
+        readBody(request).then((body) => {
+            let strings = body.split('&') // ['email=1', 'password=2']
+            let hash = {}
+            strings.forEach((string) => {
+                let parts = string.split('=') // ['email', '1']
+                let key = parts[0]
+                let value = parts[1]
+                hash[key] = decodeURIComponent(value) // hash['email'] = '1'
+            })
+            let { email, password } = hash
+            var users = fs.readFileSync('./db/users', 'utf8')
+            try {
+                users = JSON.parse(users) // []
+            } catch (exception) {
+                users = []
+            }
+            let found
+            for (let i = 0; i < users.length; i++) {
+                if (users[i].email === email && users[i].password === password) {
+                    found = true
+                    break
+                }
+            }
+            if (found) {
+                response.setHeader('Set-Cookie', `sign_in_email=${email}`)
                 response.statusCode = 200
+            } else {
+                response.statusCode = 401
             }
             response.end()
         })
